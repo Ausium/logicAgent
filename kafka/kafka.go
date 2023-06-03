@@ -5,9 +5,10 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// 这里暴露全局变量，其他地方也可以使用他
 var (
 	client  sarama.SyncProducer
-	MsgChan chan *sarama.ProducerMessage
+	msgChan chan *sarama.ProducerMessage
 )
 
 //kafka相关操作
@@ -27,7 +28,7 @@ func Init(address []string, chanSize int64) (err error) {
 		return
 	}
 	//初始化MsgChan
-	MsgChan = make(chan *sarama.ProducerMessage, chanSize)
+	msgChan = make(chan *sarama.ProducerMessage, chanSize)
 	//起一个后台的goroutine从msgchan中读取数据
 	go sendMsg()
 	return
@@ -37,7 +38,7 @@ func Init(address []string, chanSize int64) (err error) {
 func sendMsg() {
 	for {
 		select {
-		case msg := <-MsgChan:
+		case msg := <-msgChan:
 			pid, offset, err := client.SendMessage(msg)
 			if err != nil {
 				logrus.Warning("run failed, err: v%", err)
@@ -46,4 +47,13 @@ func sendMsg() {
 			logrus.Infof("send msg to kafka success. pid:%v offset:%v", pid, offset)
 		}
 	}
+}
+
+// 定义一个函数向外暴露msgchan
+//
+//	func ToMsgChan() chan<- *sarama.ProducerMessage {
+//		return msgChan
+//	}
+func ToMsgChan(msg *sarama.ProducerMessage) {
+	msgChan <- msg
 }

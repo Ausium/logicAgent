@@ -2,12 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/Shopify/sarama"
 	"github.com/go-ini/ini"
 	"github.com/sirupsen/logrus"
+	"logAgent/etcd"
 	"logAgent/kafka"
 	"logAgent/tailfile"
-	"time"
 )
 
 //日志收集客户端
@@ -19,6 +18,7 @@ import (
 type Config struct {
 	KafkaConfig   `ini:"kafka"`
 	CollectConfig `ini:"collect"`
+	EtcdConfig    `ini:"etcd"`
 }
 
 type KafkaConfig struct {
@@ -31,26 +31,15 @@ type CollectConfig struct {
 	LogFilePath string `ini:"logfile_path"`
 }
 
-// 真正的业务逻辑
-func run() (err error) {
-	//TailObj --> log --> client --> kafka
-	for {
-		//循环读取数据
-		line, ok := <-tailfile.TailObj.Lines
-		if !ok {
-			logrus.Warn("tail file close reopen filename:%s\n", tailfile.TailObj.Filename)
-			time.Sleep(time.Second)
-			continue
-		}
-		//利用通道将同步的代码改为异步的
-		//把读出来的一行日志包装成kafka里面的msg类型，丢到通道中
-		msg := &sarama.ProducerMessage{}
-		msg.Topic = "web_log"
-		msg.Value = sarama.StringEncoder(line.Text)
-		//丢到通道中
-		kafka.MsgChan <- msg
-	}
+type EtcdConfig struct {
+	Address    string `ini:"address"`
+	CollectKey string `ini:"collect_key"`
+}
 
+func run() {
+	for {
+		select {}
+	}
 }
 
 func main() {
@@ -60,7 +49,7 @@ func main() {
 	var configObj = new(Config)
 	err := ini.MapTo(configObj, "./conf/config.ini")
 	if err != nil {
-		logrus.Error("load config failed, err: v%", err)
+		logrus.Errorf("load config failed, err: v%", err)
 		return
 	}
 	//kafkaAddr := cfg.Section("kafka").Key("address").String()
@@ -68,23 +57,40 @@ func main() {
 	//2. 初始化连接kafka（做好准备工作）
 	err = kafka.Init([]string{configObj.KafkaConfig.Address}, configObj.KafkaConfig.ChanSize)
 	if err != nil {
-		logrus.Error("init kafka failed, err: v%", err)
+		logrus.Errorf("init kafka failed, err: v%", err)
 		return
 	}
 	logrus.Info("init kafka success!")
 
-	//2.根据配置中的日志路径初始化tail
-	err = tailfile.Init(configObj.CollectConfig.LogFilePath)
+	//2.初始化etcd连接
+	err = etcd.Init([]string{configObj.EtcdConfig.Address})
 	if err != nil {
-		logrus.Error("init tailfile failed, err: v%", err)
+		logrus.Errorf("init etcd failed, err: v%", err)
+		return
+	}
+	logrus.Infof("connect to etcd success!")
+	//3.从etcd中拉取要收集的日志配置项
+	fmt.Println(configObj.EtcdConfig.CollectKey)
+	allConf, err := etcd.GetConf(configObj.EtcdConfig.CollectKey)
+	if err != nil {
+		logrus.Errorf("get conf from etcd failed, err: v%", err)
+		return
+	}
+	//使用一个goroputine去监控etcd中，configObj.EtcdConfig.CollectKey对应值的变化
+	go etcd.WatchConf(configObj.EtcdConfig.CollectKey)
+
+	fmt.Println(allConf)
+	//4.根据配置中的日志路径初始化tail
+	err = tailfile.Init(allConf)
+	if err != nil {
+		logrus.Errorf("init tailfile failed, err: v%", err)
 		return
 	}
 	logrus.Info("init tailfile success!")
-
-	err = run()
 	if err != nil {
-		logrus.Error("run failed, err: v%", err)
+		logrus.Errorf("run failed, err: v%", err)
 		return
 	}
+	run()
 	//3.把日志通过sarama发往kafka
 }
