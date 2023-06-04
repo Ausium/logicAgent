@@ -27,6 +27,7 @@ func Init(address []string, chanSize int64) (err error) {
 		logrus.Error("kafka: producer closed, err:", err)
 		return
 	}
+	logrus.Infof("kafka连接成功！")
 	//初始化MsgChan
 	msgChan = make(chan *sarama.ProducerMessage, chanSize)
 	//起一个后台的goroutine从msgchan中读取数据
@@ -39,13 +40,15 @@ func sendMsg() {
 	for {
 		select {
 		case msg := <-msgChan:
+			logrus.Infof("ready login kafka success")
 			pid, offset, err := client.SendMessage(msg)
 			if err != nil {
-				logrus.Warning("run failed, err: v%", err)
+				logrus.Warning("send msg kafka failed, err: v%", err)
 				return
 			}
 			logrus.Infof("send msg to kafka success. pid:%v offset:%v", pid, offset)
 		}
+
 	}
 }
 

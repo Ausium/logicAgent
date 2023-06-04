@@ -69,6 +69,7 @@ func main() {
 		return
 	}
 	logrus.Infof("connect to etcd success!")
+
 	//3.从etcd中拉取要收集的日志配置项
 	fmt.Println(configObj.EtcdConfig.CollectKey)
 	allConf, err := etcd.GetConf(configObj.EtcdConfig.CollectKey)
@@ -77,6 +78,7 @@ func main() {
 		return
 	}
 	//使用一个goroputine去监控etcd中，configObj.EtcdConfig.CollectKey对应值的变化
+	//如果值有更新，就去更新etcd的配置项
 	go etcd.WatchConf(configObj.EtcdConfig.CollectKey)
 
 	fmt.Println(allConf)
