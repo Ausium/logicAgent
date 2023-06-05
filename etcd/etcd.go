@@ -55,11 +55,17 @@ func GetConf(key string) (collectEntryList []common.CollectEntry, err error) {
 func WatchConf(key string) {
 	for {
 		watchCh := client.Watch(context.Background(), key)
-		var newConf []common.CollectEntry
+
 		for wresp := range watchCh {
 			logrus.Infof("get new conf from etcd!")
 			for _, ev := range wresp.Events {
 				fmt.Printf("Type: %s Key:%s Value:%s\n", ev.Type, ev.Kv.Key, ev.Kv.Value)
+				var newConf []common.CollectEntry
+				if ev.Type == clientv3.EventTypeDelete {
+					logrus.Warning("etcd delete conf!!!!!")
+					tailfile.SendNewConf(newConf)
+					continue
+				}
 				err := json.Unmarshal(ev.Kv.Value, &newConf)
 				if err != nil {
 					logrus.Errorf("json Unmarshal new conf failed, err: %v", err)

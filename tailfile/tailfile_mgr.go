@@ -1,7 +1,6 @@
 package tailfile
 
 import (
-	"github.com/hpcloud/tail"
 	"github.com/sirupsen/logrus"
 	"logAgent/common"
 )
@@ -36,7 +35,7 @@ func Init(allConf []common.CollectEntry) (err error) {
 		logrus.Infof("create a tail task for path:%s success!", conf.Path)
 		//把创建的这个tailTask任务登录起来
 		ttMgr.tailTaskMap[tt.path] = tt
-		//收集日志
+		// 起一个后台goroutine去收集日志
 		go tt.run()
 
 	}
@@ -44,6 +43,7 @@ func Init(allConf []common.CollectEntry) (err error) {
 	return
 }
 
+// 一直在等confChan有值，有值就开始去管理之前的tailTask
 func (t *tailTaskMgr) watch() {
 	for {
 		//派一个小弟等着新配置来
@@ -65,37 +65,33 @@ func (t *tailTaskMgr) watch() {
 			logrus.Infof("create a tail task for path:%s success!", conf.Path)
 			//把创建的这个tailTask任务登记起来
 			ttMgr.tailTaskMap[tt.path] = tt
+			// 起一个后台goroutine去收集日志
 			go tt.run()
-			//3.原来有的现在没有的就需要tailTask停掉
+		}
+		//3.原来有的现在没有的就需要tailTask停掉
+		//找出tailTaskMap中存在，但是newConf中不存在的那些tailTask，把他们停掉
+		for key, task := range t.tailTaskMap {
+			var found bool
+			for _, conf := range newConf {
+				if key == conf.Path {
+					found = true
+				}
+			}
+			if !found {
+				delete(t.tailTaskMap, key) //从管理类中删掉
+				task.cancel()
+			}
 		}
 	}
 }
 
+// 判断tailTaskMap中是否有收集项
 func (t *tailTaskMgr) isExist(conf common.CollectEntry) bool {
 	_, ok := t.tailTaskMap[conf.Path]
 	return ok
 }
 
+// 把新的配置丢到管理对象的confChan中
 func SendNewConf(newConf []common.CollectEntry) {
 	ttMgr.confChan <- newConf
-}
-
-func newTailTask(path, topic string) *tailTask {
-	tt := &tailTask{
-		path:  path,
-		topic: topic,
-	}
-	return tt
-}
-
-func (t *tailTask) Init() (err error) {
-	config := tail.Config{
-		ReOpen:   true,
-		Follow:   true,
-		Location: &tail.SeekInfo{Offset: 0, Whence: 2},
-		Poll:     true,
-	}
-	//打开文件开始读取数据
-	t.TailObj, err = tail.TailFile(t.path, config)
-	return
 }
